@@ -1,138 +1,129 @@
+import os
+import base64
 import cv2
-from flask import Flask, render_template, Response, jsonify, request
-from ultralytics import YOLO
-import threading
-import time
+import numpy as np
 from datetime import datetime
+from flask import Flask, render_template, request, jsonify
+from ultralytics import YOLO
 
 app = Flask(__name__)
 
-# 1. Load the optimized OpenVINO model folder
-model = YOLO("yolov8n_openvino_model/")
+# -------------------------------------------------------------------------
+# 1. INITIALIZE AI ENGINE & GLOBAL VARIABLES
+# -------------------------------------------------------------------------
+# Load and export the model to OpenVINO format upon startup if not already compiled
+MODEL_PATH = "yolov8n.pt"
+OPENVINO_MODEL_PATH = "yolov8n_openvino_model"
 
-# 2. Simplified to ONLY use your live webcam
-CAMERA_SOURCES = {
-    "front_gate": 0  
-}
+try:
+    if not os.path.exists(OPENVINO_MODEL_PATH):
+        print("[INFO] Compiling YOLOv8 to hardware-accelerated OpenVINO format...")
+        base_model = YOLO(MODEL_PATH)
+        base_model.export(format="openvino")
+    
+    # Load the highly optimized local Intel OpenVINO instance
+    model = YOLO(OPENVINO_MODEL_PATH, task="detect")
+    print("[SUCCESS] Hardware-accelerated OpenVINO Engine loaded successfully.")
+except Exception as e:
+    print(f"[WARNING] OpenVINO compilation failed or skipped, reverting to default: {e}")
+    model = YOLO(MODEL_PATH)
 
-# Shared memory spaces for the background threads
-latest_frames = {}
-processed_frames = {}
-alert_logs = []
+# Global configuration states
+confidence_threshold = 0.25
+system_alerts = []
 
-# --- CORE AI LOGIC SETTINGS ---
-CONFIDENCE_THRESHOLD = 0.25  # Lowered to 25% so it easily catches scissors/objects in indoor light
+# Target threat watchlist classes (YOLOv8 default COCO mapping strings)
 THREAT_CLASSES = ["knife", "scissors", "baseball bat", "backpack", "person"]
 
-def camera_capture_worker(cam_id, source):
-    """Background loop fetching raw frames directly from your webcam."""
-    cap = cv2.VideoCapture(source)
-    while True:
-        success, frame = cap.read()
-        if success:
-            latest_frames[cam_id] = frame
-        time.sleep(0.01) # Yields to prevent CPU hogging
-
-def ai_inference_worker():
-    """Background engine loop running OpenVINO hardware matrix math."""
-    global CONFIDENCE_THRESHOLD
-    while True:
-        for cam_id in list(latest_frames.keys()):
-            raw_frame = latest_frames.get(cam_id)
-            if raw_frame is None:
-                continue
-                
-            # Create a detached copy to ensure safe thread reads
-            frame = raw_frame.copy()
-            
-            # Execute OpenVINO inference at default 640x640 shape
-            results = model(frame, stream=True, verbose=False)
-            threat_detected = False
-            detected_items = []
-
-            for r in results:
-                for box in r.boxes:
-                    cls_id = int(box.cls[0])
-                    conf = float(box.conf[0])
-                    class_name = model.names[cls_id]
-
-                    if conf > CONFIDENCE_THRESHOLD:
-                        x1, y1, x2, y2 = map(int, box.xyxy[0])
-                        
-                        # --- DIAGNOSTIC TERMINAL PRINT ---
-                        # This will print directly to your terminal window whenever ANY object is found
-                        print(f"📡 AI TARGET SPOTTED: {class_name} ({conf*100:.1f}%)")
-
-                        if class_name in THREAT_CLASSES:
-                            color = (0, 0, 255) # Warning Red
-                            label = f"ALERT: {class_name} ({conf:.2f})"
-                            threat_detected = True
-                            detected_items.append(class_name)
-                        else:
-                            color = (0, 255, 0) # Normal Green
-                            label = f"{class_name} ({conf:.2f})"
-
-                        cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-                        cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-
-            if threat_detected:
-                unique_threats = list(set(detected_items))
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
-                log_entry = f"[{timestamp}] Anomaly Flagged: {', '.join(unique_threats)}"
-                if log_entry not in alert_logs:
-                    alert_logs.insert(0, log_entry)
-
-            # Push the annotated drawing data into the viewing queue
-            processed_frames[cam_id] = frame
-        
-        # Give the webcam space to pass fresh frames
-        time.sleep(0.03)
-
-# --- START THE BACKGROUND THREADS ---
-for camera_id, camera_source in CAMERA_SOURCES.items():
-    t = threading.Thread(target=camera_capture_worker, args=(camera_id, camera_source), daemon=True)
-    t.start()
-
-ai_worker = threading.Thread(target=ai_inference_worker, daemon=True)
-ai_worker.start()
-
-def generate_mjpeg_stream(cam_id):
-    """Formats processed images to streamable MJPEG byte lines for Flask paths."""
-    while True:
-        # Check if the AI engine has finished drawing boxes on a frame
-        if cam_id in processed_frames and processed_frames[cam_id] is not None:
-            # Grab the annotated frame and encode it immediately
-            ret, buffer = cv2.imencode('.jpg', processed_frames[cam_id])
-            if ret:
-                frame_bytes = buffer.tobytes()
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
-                
-                # CRITICAL: Clear out the frame slot after serving it.
-                # This forces Flask to pause and wait until the AI engine finishes processing the next frame.
-                processed_frames[cam_id] = None
-        
-        # Match standard webcam refresh rate (~30ms)
-        time.sleep(0.03)
+# -------------------------------------------------------------------------
+# 2. FLASK WEB CORE APPLICATION ROUTES
+# -------------------------------------------------------------------------
 @app.route('/')
 def index():
-    return render_template('index.html', cam_ids=CAMERA_SOURCES.keys())
+    """Serves the central dark-mode tracking command dashboard."""
+    return render_template('index.html')
 
-@app.route('/video_feed/<cam_id>')
-def video_feed(cam_id):
-    return Response(generate_mjpeg_stream(cam_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
-@app.route('/alerts')
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    """
+    Receives incoming base64 video frames from client browsers,
+    runs them through the AI model, logs threats, and returns annotated images.
+    """
+    global confidence_threshold, system_alerts
+    
+    data = request.get_json()
+    if not data or 'image' not in data:
+        return jsonify({'error': 'No frame telemetry received'}), 400
+
+    try:
+        # Strip the data URI header scheme (e.g., "data:image/jpeg;base64,")
+        header, encoded_data = data['image'].split(',', 1)
+        
+        # Decode base64 bytes straight into an OpenCV usable matrix format
+        frame_bytes = base64.b64decode(encoded_data)
+        np_array = np.frombuffer(frame_bytes, dtype=np.uint8)
+        frame = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+        
+        if frame is None:
+            return jsonify({'error': 'Frame decoding malfunction'}), 400
+
+        # Execute live object detection with the dynamic threshold slider limits
+        results = model(frame, conf=confidence_threshold, verbose=False)
+        annotated_frame = results[0].plot()
+
+        # Parse detected object indices to search for threats
+        boxes = results[0].boxes
+        for box in boxes:
+            class_id = int(box.cls[0])
+            class_name = model.names[class_id]
+
+            if class_name in THREAT_CLASSES:
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                alert_msg = f"[{timestamp}] WARNING: Threat Entity '{class_name.upper()}' identified at Node 01."
+                
+                # Prepend the alert to keep logs descending (newest on top)
+                if alert_msg not in system_alerts:
+                    system_alerts.insert(0, alert_msg)
+                    
+                # Cap log cache history length at 30 items to save server memory
+                if len(system_alerts) > 30:
+                    system_alerts.pop()
+
+        # Re-encode the newly drawn annotated frame to base64 jpeg format
+        _, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 60])
+        processed_base64 = base64.b64encode(buffer).decode('utf-8')
+        
+        return jsonify({
+            'processed_image': f"data:image/jpeg;base64,{processed_base64}"
+        })
+
+    except Exception as e:
+        print(f"[ERROR] Frame Processing Exception pipeline: {e}")
+        return jsonify({'error': 'Internal server compute failure'}), 500
+
+
+@app.route('/alerts', methods=['GET'])
 def get_alerts():
-    return jsonify(alerts=alert_logs[:20])
+    """Polled regularly by the client dashboard frontend to refresh logs."""
+    return jsonify({'alerts': system_alerts})
+
 
 @app.route('/set_threshold', methods=['POST'])
 def set_threshold():
-    global CONFIDENCE_THRESHOLD
+    """Updates the internal model filtering confidence instantly from frontend slider data."""
+    global confidence_threshold
     data = request.get_json()
-    CONFIDENCE_THRESHOLD = float(data.get('threshold', 0.25))
-    return jsonify(success=True)
+    if data and 'threshold' in data:
+        confidence_threshold = float(data['threshold'])
+        return jsonify({'status': 'success', 'current_threshold': confidence_threshold})
+    return jsonify({'status': 'error', 'message': 'Invalid parameter data structure'}), 400
 
+# -------------------------------------------------------------------------
+# 3. PRODUCTION PORT ALLOCATION RUNNER
+# -------------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    # Render binds the application to an environment variable called PORT.
+    # If run locally, it cleanly falls back to manual testing on port 5000.
+    web_port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=web_port, debug=False)
