@@ -2,3 +2,4 @@ ultralytics
 openvino
 opencv-python
 flask
+gunicorn
