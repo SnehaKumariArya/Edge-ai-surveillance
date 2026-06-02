@@ -8,11 +8,11 @@
 ![YOLOv8](https://img.shields.io/badge/YOLOv8-Ultralytics-8A2BE2?style=for-the-badge&logo=ai&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-green?style=for-the-badge)
 
-[![Deployment Status](https://img.shields.io/badge/Render-Live_App-9333EA?style=for-the-badge&logo=render&logoColor=white)](https://edge-ai-surveillance.onrender.com)
-
 <p align="center">
   A high-performance, completely private, hardware-accelerated computer vision ecosystem that processes live video streams at the edge to detect spatial threats instantly.
 </p>
+
+[![Deployment Status](https://img.shields.io/badge/Render-Live_App-9333EA?style=for-the-badge&logo=render&logoColor=white)](https://edge-ai-surveillance.onrender.com)
 
 <h4>
   <a href="#-key-architecture">Architecture</a> •
