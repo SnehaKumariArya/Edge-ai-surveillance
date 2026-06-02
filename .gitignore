@@ -1,0 +1,16 @@
+# Ignore the large OpenVINO compiled model folder
+yolov8n_openvino_model/
+
+# Ignore standard PyTorch weights if you downloaded them
+*.pt
+
+# Ignore Python cache and local virtual environments
+__pycache__/
+.venv/
+venv/
+env/
+.env
+
+# Ignore OS-specific temporary files
+.DS_Store
+Thumbs.db

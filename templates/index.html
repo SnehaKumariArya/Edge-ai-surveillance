@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Edge-AI Command Center</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-main: #09090b;
+            --bg-card: #141417;
+            --border-color: #27272a;
+            --accent-red: #ef4444;
+            --accent-green: #22c55e;
+            --text-main: #f4f4f5;
+            --text-muted: #a1a1aa;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .dashboard-container {
+            width: 100%;
+            max-width: 1200px;
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        /* Top Header Navigation bar */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .brand p {
+            margin: 4px 0 0 0;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .status-badge {
+            background: rgba(34, 197, 94, 0.1);
+            color: var(--accent-green);
+            padding: 6px 12px;
+            border-radius: 100px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            border: 1px solid rgba(34, 197, 94, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background-color: var(--accent-green);
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        /* Core Layout Grid */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr;
+            gap: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .main-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Video Workspace Section */
+        .video-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        .panel-header {
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .stream-wrapper {
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+            position: relative;
+            aspect-ratio: 16 / 9;
+        }
+
+        .stream-wrapper img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        /* Control / Sidebar Modules */
+        .control-sidebars {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Modernized Custom Slider styling */
+        .slider-group {
+            margin-top: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .slider-header span:last-child {
+            color: var(--accent-red);
+            font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: #27272a;
+            border-radius: 100px;
+            outline: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--accent-red);
+            cursor: pointer;
+            transition: transform 0.1s ease;
+            box-shadow: 0 0 8px var(--accent-red);
+        }
+
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Incident Alerts Log Panel */
+        .log-container {
+            height: 340px;
+            overflow-y: auto;
+            margin-top: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+        }
+
+        /* Scrollbar customizing */
+        .log-container::-webkit-scrollbar { width: 4px; }
+        .log-container::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 100px; }
+
+        .log-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            line-height: 1.4;
+            border-left: 4px solid var(--accent-red);
+            animation: slideIn 0.2s ease-out;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(-4px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard-container">
+        <header>
+            <div class="brand">
+                <h1>⚡ EDGE-AI CONTROL PANEL</h1>
+                <p>Local Hardware-Accelerated Surveillance Matrix</p>
+            </div>
+            <div class="status-badge">SYSTEM LIVE (OPENVINO)</div>
+        </header>
+
+        <div class="main-grid">
+            <div class="video-panel">
+                <div class="panel-header">
+                    <span>Live Video Analytics Feed</span>
+                    <span style="color: var(--accent-red); font-size: 0.8rem;">● GATE_NODE_01</span>
+                </div>
+                <div class="stream-wrapper">
+                    {% for cam_id in cam_ids %}
+                    <img src="{{ url_for('video_feed', cam_id=cam_id) }}" alt="Initializing Stream Engine Pipeline...">
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="control-sidebars">
+                <div class="card">
+                    <div class="panel-header">Confidence Filter</div>
+                    <div class="slider-group">
+                        <div class="slider-header">
+                            <span>Inference Threshold Setting</span>
+                            <span id="slider-value">25%</span>
+                        </div>
+                        <input type="range" id="threshold-slider" min="10" max="95" value="25">
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="panel-header">System Threat Stream Log</div>
+                    <div class="log-container" id="log-wrapper">
+                        </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function fetchSystemLogs() {
+            try {
+                const response = await fetch('/alerts');
+                const data = await response.json();
+                const container = document.getElementById('log-wrapper');
+                container.innerHTML = '';
+                
+                if (data.alerts.length === 0) {
+                    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 40px;">No threats flagged. Monitoring system steady...</div>`;
+                    return;
+                }
+
+                data.alerts.forEach(alert => {
+                    const item = document.createElement('div');
+                    item.className = 'log-card';
+                    item.innerText = alert;
+                    container.appendChild(item);
+                });
+            } catch (err) { console.error("Data Synch Issue:", err); }
+        }
+
+        const slider = document.getElementById('threshold-slider');
+        slider.addEventListener('input', async (e) => {
+            document.getElementById('slider-value').innerText = e.target.value + "%";
+            await fetch('/set_threshold', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ threshold: e.target.value / 100 })
+            });
+        });
+
+        // Loop feed alerts sync every 1.5s
+        setInterval(fetchSystemLogs, 1500);
+        fetchSystemLogs();
+    </script>
+</body>
+</html>

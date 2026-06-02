@@ -1,0 +1,4 @@
+ultralytics
+openvino
+opencv-python
+flask
