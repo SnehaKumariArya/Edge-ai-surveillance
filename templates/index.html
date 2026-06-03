@@ -126,7 +126,6 @@
             justify-content: center;
         }
 
-        /* Responsive canvas element handling the cloud frame drawing stream */
         .stream-wrapper canvas {
             width: 100%;
             height: 100%;
@@ -228,7 +227,7 @@
         <header>
             <div class="brand">
                 <h1>⚡ EDGE-AI CONTROL PANEL</h1>
-                <p>Cloud Distributed Surveillance Intelligence Matrix</p>
+                <p>Distributed Surveillance Intelligence Matrix</p>
             </div>
             <div class="status-badge">SYSTEM LIVE (OPENVINO)</div>
         </header>
@@ -267,98 +266,118 @@
 
     <script>
         const video = document.getElementById('webcam-source');
-        const canvas = document.getElementById('analytics-canvas');
-        const ctx = canvas.getContext('2d');
-        let streamingActive = false;
+const canvas = document.getElementById('analytics-canvas');
+const ctx = canvas.getContext('2d');
+let streamingActive = false;
+let isProcessingFrame = false; // Guard flag to prevent frame collisions
 
-        // 1. Initialize Browser Media Access (Requests Visitor Webcam Access)
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
-            .then((stream) => {
-                video.srcObject = stream;
-                video.addEventListener('loadedmetadata', () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    streamingActive = true;
-                    sendFrameLoop(); // Start processing pipeline
-                });
-            })
-            .catch((err) => {
-                console.error("Webcam target access denied:", err);
-                ctx.fillStyle = "#a1a1aa";
-                ctx.font = "14px Inter";
-                ctx.textAlign = "center";
-                ctx.fillText("Camera access required. Please allow webcam permissions.", canvas.width/2 || 150, canvas.height/2 || 75);
-            });
-
-        // 2. Continuous Image Frame Processing Stream Pipeline
-        async function sendFrameLoop() {
-            if (!streamingActive) return;
-
-            // Paint the hardware camera lane into the local memory track
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
-            // Extract compression quality format to send to Flask backend
-            const base64Frame = canvas.toDataURL('image/jpeg', 0.5);
-
-            try {
-                const response = await fetch('/process_frame', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image: base64Frame })
-                });
-                const data = await response.json();
-
-                if (data.processed_image) {
-                    const annotatedImg = new Image();
-                    annotatedImg.onload = () => {
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        ctx.drawImage(annotatedImg, 0, 0, canvas.width, canvas.height);
-                    };
-                    annotatedImg.src = data.processed_image;
-                }
-            } catch (err) {
-                console.error("Frame pipeline dropping frames:", err);
-            }
-
-            // Sync with hardware frame refreshes (approx 20-30 FPS depending on cloud inference speed)
-            setTimeout(sendFrameLoop, 50);
-        }
-
-        // 3. Alerts Handling Logging Stream
-        async function fetchSystemLogs() {
-            try {
-                const response = await fetch('/alerts');
-                const data = await response.json();
-                const container = document.getElementById('log-wrapper');
-                container.innerHTML = '';
-                
-                if (!data.alerts || data.alerts.length === 0) {
-                    container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 40px;">No threats flagged. Monitoring system steady...</div>`;
-                    return;
-                }
-
-                data.alerts.forEach(alert => {
-                    const item = document.createElement('div');
-                    item.className = 'log-card';
-                    item.innerText = alert;
-                    container.appendChild(item);
-                });
-            } catch (err) { console.error("Data Sync Issue:", err); }
-        }
-
-        // 4. Threshold Limits Configuration Handling
-        const slider = document.getElementById('threshold-slider');
-        slider.addEventListener('input', async (e) => {
-            document.getElementById('slider-value').innerText = e.target.value + "%";
-            await fetch('/set_threshold', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ threshold: e.target.value / 100 })
-            });
+// 1. Request a optimized, lightweight resolution to save network bandwidth
+navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 }, audio: false })
+    .then((stream) => {
+        video.srcObject = stream;
+        video.addEventListener('loadedmetadata', () => {
+            // Set canvas size to match our lightweight stream dimensions
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            streamingActive = true;
+            sendFrameLoop(); // Start our optimized transmission loop
         });
+    })
+    .catch((err) => {
+        console.error("Camera node hardware access blocked:", err);
+        ctx.fillStyle = "#a1a1aa";
+        ctx.font = "14px Inter";
+        ctx.textAlign = "center";
+        ctx.fillText("Webcam permission mandatory. Please check browser settings.", canvas.width/2 || 150, canvas.height/2 || 75);
+    });
 
-        setInterval(fetchSystemLogs, 1500);
-        fetchSystemLogs();
+// 2. High-speed, crash-proof frame transmission loop
+async function sendFrameLoop() {
+    // If the loop is inactive, or the backend is still busy processing the last frame, skip this tick!
+    if (!streamingActive || isProcessingFrame) {
+        setTimeout(sendFrameLoop, 30);
+        return;
+    }
+
+    isProcessingFrame = true; // Lock the pipeline while processing
+
+    // Paint current camera frame to our internal canvas pool
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Compress image quality down to 40% JPEG to maximize transit speeds
+    const base64Frame = canvas.toDataURL('image/jpeg', 0.4);
+
+    try {
+        const response = await fetch('/process_frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ image: base64Frame })
+        });
+        
+        if (response.ok) {
+            const data = await response.json();
+
+            if (data.processed_image) {
+                const annotatedImg = new Image();
+                annotatedImg.onload = () => {
+                    // CRITICAL FIX FOR BLINKING: 
+                    // Draw the new image directly on top of the old one without using clearRect().
+                    // This keeps the stream seamless and eliminates flashing entirely!
+                    ctx.drawImage(annotatedImg, 0, 0, canvas.width, canvas.height);
+                    isProcessingFrame = false; // Unlock pipeline after rendering is complete
+                };
+                annotatedImg.src = data.processed_image;
+            } else {
+                isProcessingFrame = false;
+            }
+        } else {
+            isProcessingFrame = false;
+        }
+    } catch (err) {
+        console.error("Dropframe recorded on network transit:", err);
+        isProcessingFrame = false; // Safely unlock if a network timeout occurs
+    }
+
+    // Schedule the next frame check smoothly (~30 FPS capability)
+    setTimeout(sendFrameLoop, 33);
+}
+
+// 3. System Threat Logger Sync Stream
+async function fetchSystemLogs() {
+    try {
+        const response = await fetch('/alerts');
+        const data = await response.json();
+        const container = document.getElementById('log-wrapper');
+        container.innerHTML = '';
+        
+        if (!data.alerts || data.alerts.length === 0) {
+            container.innerHTML = `<div style="color: var(--text-muted); font-size: 0.85rem; text-align: center; margin-top: 40px;">No threats flagged. Monitoring system steady...</div>`;
+            return;
+        }
+
+        data.alerts.forEach(alert => {
+            const item = document.createElement('div');
+            item.className = 'log-card';
+            item.innerText = alert;
+            container.appendChild(item);
+        });
+    } catch (err) { console.error("Logger polling dropped synchronization:", err); }
+}
+
+// 4. Threshold Filter Slider Logic Configurator
+const slider = document.getElementById('threshold-slider');
+slider.addEventListener('input', async (e) => {
+    document.getElementById('slider-value').innerText = e.target.value + "%";
+    await fetch('/set_threshold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold: e.target.value / 100 })
+    });
+});
+
+// Set threat history logs update interval to 2 seconds to save CPU processing power
+setInterval(fetchSystemLogs, 2000);
+fetchSystemLogs();
     </script>
 </body>
 </html>
