@@ -44,11 +44,23 @@ def process_frame():
         if frame is None:
             return jsonify({'error': 'Frame decoding failure'}), 400
 
+        # Run inference using the efficient ONNX model structure
         results = model(frame, conf=CONFIDENCE_THRESHOLD, verbose=False)
-        annotated_frame = results[0].plot()
+        
+        # 🌟 CRITICAL FIX: Force ONNX to explicitly render text labels and boxes
+        annotated_frame = results[0].plot(labels=True, conf=True, boxes=True)
 
-        detected_items = [model.names[int(box.cls[0])] for box in results[0].boxes if model.names[int(box.cls[0])] in THREAT_CLASSES]
+        # Check inference outcomes for target threat anomalies
+        detected_items = []
+        if results[0].boxes is not None:
+            for box in results[0].boxes:
+                cls_id = int(box.cls[0])
+                class_name = model.names[cls_id]
+                
+                if class_name in THREAT_CLASSES:
+                    detected_items.append(class_name)
 
+        # Log alerts dynamically if targets are caught
         if detected_items:
             unique_threats = list(set(detected_items))
             timestamp = datetime.now().strftime("%H:%M:%S")
@@ -58,11 +70,13 @@ def process_frame():
             if len(alert_logs) > 30:
                 alert_logs.pop()
 
+        # Compress and encode the annotated frame back to base64 string bytes
         _, buffer = cv2.imencode('.jpg', annotated_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         processed_base64 = base64.b64encode(buffer).decode('utf-8')
         
         return jsonify({'processed_image': f"data:image/jpeg;base64,{processed_base64}"})
     except Exception as e:
+        print(f"[ERROR] Inference step crash: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/alerts', methods=['GET'])
